@@ -379,7 +379,7 @@ class PPOTrainer(BaseTrainer):
         """
         return {k: v for k, v in kwargs.items() if k in inspect.signature(target_func).parameters.keys()}
 
-    def prepare_dataloader(self, dataset: Union[torch.utils.data.Dataset, Dataset], data_collator=None, eval=False):
+    def prepare_dataloader(self, dataset: Union[torch.utils.data.Dataset, Dataset], data_collator=None):
         """
         Prepare the dataloader for training.
 
@@ -397,7 +397,7 @@ class PPOTrainer(BaseTrainer):
             dataset = self._remove_unused_columns(dataset)
         dataloader = torch.utils.data.DataLoader(
             dataset,
-            batch_size=self.config.batch_size * (1 if not eval else self.config.eval_batch_multiplier),
+            batch_size=self.config.batch_size,
             collate_fn=data_collator,
             shuffle=True,
             drop_last=True,
