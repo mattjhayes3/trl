@@ -184,6 +184,7 @@ class PPOTrainer(BaseTrainer):
                 Learning rate scheduler used for training.
         """
         super().__init__(config)
+        print("****** hi ******")
 
         # initial seed for reproducible experiments
         set_seed(config.seed)
@@ -1467,6 +1468,7 @@ class PPOTrainer(BaseTrainer):
     @PPODecorators.empty_device_cache()
     def get_generation_kls(
         self,
+        kl_type,
         queries: List[torch.LongTensor],
         responses: List[torch.LongTensor],
         scores: List[torch.FloatTensor],
@@ -1488,6 +1490,12 @@ class PPOTrainer(BaseTrainer):
         Returns:
             `dict[str, Any]`: A summary of the training statistics
         """
+        print("****** hi yo scores ******")
+        bs = self.config.batch_size
+
+        queries, responses, scores, response_masks = self._step_safety_checker(
+            bs, queries, responses, scores, response_masks
+        )
         model_inputs = self.prepare_model_inputs(queries, responses)
 
         if self.is_distributed:
@@ -1518,7 +1526,7 @@ class PPOTrainer(BaseTrainer):
 
         model_inputs_names = list(model_inputs.keys())
 
-        full_kl_penalty = self.config.eval_kl_penalty == "full"
+        full_kl_penalty = kl_type == "full"
 
         with torch.no_grad():
             all_logprobs, logits_or_none, values, masks = self.batched_forward_pass(
@@ -1545,10 +1553,10 @@ class PPOTrainer(BaseTrainer):
                 ref_full_logprobs = logprobs_from_logits(ref_logits_or_none, None, gather=False)
 
                 kls = self._kl_penalty(
-                    self.config.eval_kl_penalty, active_full_logprobs, ref_full_logprobs
+                    kl_type, active_full_logprobs, ref_full_logprobs
                 )
             else:
-                kls = self._kl_penalty(self.config.eval_kl_penalty, all_logprobs, ref_logprobs)
+                kls = self._kl_penalty(kl_type, all_logprobs, ref_logprobs)
 
         # upcast to float32 to avoid dataset issues
         # batch_dict = {
@@ -1559,4 +1567,5 @@ class PPOTrainer(BaseTrainer):
         #     "masks": masks,
         # }
         # batch_dict.update(model_inputs)
+        print(f"returning", kls)
         return kls

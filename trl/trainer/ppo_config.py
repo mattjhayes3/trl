@@ -26,7 +26,8 @@ from trl.trainer.utils import exact_div
 
 from ..core import flatten_dict
 from ..import_utils import is_wandb_available
-
+import datetime as dt
+import time
 
 JSONDict = Annotated[Optional[dict], tyro.conf.arg(metavar="JSON", constructor=json.loads)]
 
@@ -38,7 +39,8 @@ class PPOConfig:
     """
 
     # common parameters
-    exp_name: str = os.path.basename(sys.argv[0])[: -len(".py")]
+    start_time = dt.datetime.utcfromtimestamp(time.time()).strftime("%Y.%m.%d.%H.%M")
+    exp_name: str
     """the name of this experiment (by default is the file name without the extension name)"""
     seed: int = 0
     """Seed value for random generations"""
@@ -60,7 +62,7 @@ class PPOConfig:
     """Keyword arguments for the accelerator"""
     project_kwargs: JSONDict = field(default_factory=dict)
     """Keyword arguments for the accelerator project config (e.g. `logging_dir`)"""
-    tracker_project_name: str = "trl"
+    tracker_project_name: str = "cs234"
     """Name of project to use for tracking"""
     push_to_hub_if_best_kwargs: JSONDict = field(default_factory=dict)
     """Keyword arguments for pushing model to the hub during training (e.g. repo_id)"""
@@ -76,8 +78,6 @@ class PPOConfig:
     """Initial KL penalty coefficient (used for adaptive and linear control)"""
     kl_penalty: Literal["kl", "abs", "mse", "full"] = "kl"
     """kl penalty options: 'kl': model_logp - ref_logp,  'abs': abs(kl),  'mse': mean squared error mse(kl) and 'full': the actual kl for all tokens in the distribution"""
-    eval_kl_penalty: Literal["kl", "abs", "mse", "full"] = "full"
-    """kl penalty for evaluation options: 'kl': model_logp - ref_logp,  'abs': abs(kl),  'mse': mean squared error mse(kl) and 'full': the actual kl for all tokens in the distribution"""
     target: Optional[float] = 6
     """Target KL value for adaptive KL control"""
     horizon: Optional[float] = 10000
@@ -148,12 +148,14 @@ class PPOConfig:
         optimize_device_cache = False
 
     def __post_init__(self):
+        if len(self.tracker_kwargs) == 0:
+            self.tracker_kwargs = {'wandb': {"name": f"{self.exp_name}-{self.start_time}"}}
+
         if self.forward_batch_size is not None:
             warnings.warn(
                 "Note that using `forward_batch_size` is deprecated, use `mini_batch_size` instead. By setting it you overwrite `mini_batch_size` which affects both the batch size during forward passes and also the mini batch size for PPO optimization."
             )
             self.mini_batch_size = self.forward_batch_size
-
         self.backward_batch_size = self.mini_batch_size * self.gradient_accumulation_steps
         exact_div(
             self.batch_size,
