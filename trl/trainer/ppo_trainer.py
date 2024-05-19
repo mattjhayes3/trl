@@ -1111,7 +1111,7 @@ class PPOTrainer(BaseTrainer):
         rewards, non_score_rewards, kls = [], [], []
         for score, logprob, ref_logprob, mask in zip(scores, logprobs, ref_logprobs, masks):
             # compute KL penalty (from difference in logprobs)
-            kl = self._kl_penalty(logprob, ref_logprob)
+            kl = self._kl_penalty(self.config.kl_penalty, logprob, ref_logprob)
             kls.append(kl)
             non_score_reward = -self.kl_ctl.value * kl
             non_score_rewards.append(non_score_reward)
@@ -1123,17 +1123,17 @@ class PPOTrainer(BaseTrainer):
             rewards.append(reward)
         return torch.stack(rewards), torch.stack(non_score_rewards), torch.stack(kls)
 
-    def _kl_penalty(self, logprob: torch.FloatTensor, ref_logprob: torch.FloatTensor) -> torch.FloatTensor:
-        if self.config.kl_penalty == "kl":
+    def _kl_penalty(self, kl_type, logprob: torch.FloatTensor, ref_logprob: torch.FloatTensor) -> torch.FloatTensor:
+        if kl_type == "kl":
             return logprob - ref_logprob
 
-        if self.config.kl_penalty == "abs":
+        if kl_type == "abs":
             return (logprob - ref_logprob).abs()
 
-        if self.config.kl_penalty == "mse":
+        if kl_type == "mse":
             return 0.5 * (logprob - ref_logprob).square()
 
-        if self.config.kl_penalty == "full":
+        if kl_type == "full":
             # Flip is required due to this issue? :https://github.com/pytorch/pytorch/issues/57459
             return F.kl_div(ref_logprob, logprob, log_target=True, reduction="none").sum(-1)
 
@@ -1463,3 +1463,100 @@ class PPOTrainer(BaseTrainer):
         model, *_ = deepspeed.initialize(model=model, config=config_kwargs)
         model.eval()
         return model
+    
+    @PPODecorators.empty_device_cache()
+    def get_generation_kls(
+        self,
+        queries: List[torch.LongTensor],
+        responses: List[torch.LongTensor],
+        scores: List[torch.FloatTensor],
+        response_masks: Optional[List[torch.LongTensor]] = None,
+    ):
+        """
+        Run a PPO optimisation step given a list of queries, model responses, and rewards.
+
+        Args:
+            queries (List[`torch.LongTensor`]):
+                List of tensors containing the encoded queries of shape (`query_length`)
+            responses (List[`torch.LongTensor`]):
+                List of tensors containing the encoded responses of shape (`response_length`)
+            scores (List[`torch.FloatTensor`]):
+                List of tensors containing the scores.
+            response_masks (List[`torch.FloatTensor`], *optional*)):
+                List of tensors containing masks of the response tokens.
+
+        Returns:
+            `dict[str, Any]`: A summary of the training statistics
+        """
+        model_inputs = self.prepare_model_inputs(queries, responses)
+
+        if self.is_distributed:
+            pad_first = self.tokenizer.padding_side == "left"
+
+            model_inputs["input_ids"] = self.accelerator.pad_across_processes(
+                model_inputs["input_ids"],
+                dim=1,
+                pad_index=self.tokenizer.pad_token_id,
+                pad_first=pad_first,
+            )
+            model_inputs["attention_mask"] = self.accelerator.pad_across_processes(
+                model_inputs["attention_mask"], dim=1, pad_index=0, pad_first=pad_first
+            )
+            if self.is_encoder_decoder:
+                model_inputs["decoder_input_ids"] = self.accelerator.pad_across_processes(
+                    model_inputs["decoder_input_ids"],
+                    dim=1,
+                    pad_index=self.tokenizer.pad_token_id,
+                    pad_first=pad_first,
+                )
+                model_inputs["decoder_attention_mask"] = self.accelerator.pad_across_processes(
+                    model_inputs["decoder_attention_mask"],
+                    dim=1,
+                    pad_index=0,
+                    pad_first=pad_first,
+                )
+
+        model_inputs_names = list(model_inputs.keys())
+
+        full_kl_penalty = self.config.eval_kl_penalty == "full"
+
+        with torch.no_grad():
+            all_logprobs, logits_or_none, values, masks = self.batched_forward_pass(
+                self.model,
+                queries,
+                responses,
+                model_inputs,
+                response_masks=response_masks,
+                return_logits=full_kl_penalty,
+            )
+            with self.optional_peft_ctx():
+                ref_logprobs, ref_logits_or_none, _, _ = self.batched_forward_pass(
+                    self.model if self.is_peft_model else self.ref_model,
+                    queries,
+                    responses,
+                    model_inputs,
+                    return_logits=full_kl_penalty,
+                )
+
+        with torch.no_grad():
+            t = time.time()
+            if full_kl_penalty:
+                active_full_logprobs = logprobs_from_logits(logits_or_none, None, gather=False)
+                ref_full_logprobs = logprobs_from_logits(ref_logits_or_none, None, gather=False)
+
+                kls = self._kl_penalty(
+                    self.config.eval_kl_penalty, active_full_logprobs, ref_full_logprobs
+                )
+            else:
+                kls = self._kl_penalty(self.config.eval_kl_penalty, all_logprobs, ref_logprobs)
+
+        # upcast to float32 to avoid dataset issues
+        # batch_dict = {
+        #     "queries": queries,
+        #     "responses": responses,
+        #     "logprobs": all_logprobs.to(torch.float32),
+        #     "values": values.to(torch.float32),
+        #     "masks": masks,
+        # }
+        # batch_dict.update(model_inputs)
+        return kls

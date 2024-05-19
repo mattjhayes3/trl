@@ -76,6 +76,8 @@ class PPOConfig:
     """Initial KL penalty coefficient (used for adaptive and linear control)"""
     kl_penalty: Literal["kl", "abs", "mse", "full"] = "kl"
     """kl penalty options: 'kl': model_logp - ref_logp,  'abs': abs(kl),  'mse': mean squared error mse(kl) and 'full': the actual kl for all tokens in the distribution"""
+    eval_kl_penalty: Literal["kl", "abs", "mse", "full"] = "full"
+    """kl penalty for evaluation options: 'kl': model_logp - ref_logp,  'abs': abs(kl),  'mse': mean squared error mse(kl) and 'full': the actual kl for all tokens in the distribution"""
     target: Optional[float] = 6
     """Target KL value for adaptive KL control"""
     horizon: Optional[float] = 10000
