@@ -1567,5 +1567,5 @@ class PPOTrainer(BaseTrainer):
         #     "masks": masks,
         # }
         # batch_dict.update(model_inputs)
-        print(f"returning", kls)
+        # print(f"returning", kls)
         return kls
