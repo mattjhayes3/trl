@@ -42,7 +42,7 @@ class PPOConfig:
     exp_name: str
     start_time = dt.datetime.utcfromtimestamp(time.time()).strftime("%Y.%m.%d.%H.%M")
     eval_model: Optional[str] = None
-    eval_batch_multiplier = 4
+    eval_batch_multiplier = 2
     """the name of this experiment (by default is the file name without the extension name)"""
     seed: int = 0
     """Seed value for random generations"""
