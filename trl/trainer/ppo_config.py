@@ -50,7 +50,7 @@ class PPOConfig:
     """Name of model to use - used only for tracking purposes"""
     query_dataset: Optional[str] = "imdb"
     """Name of dataset to query - used only for tracking purposes"""
-    reward_model: Optional[str] = "sentiment-analysis:lvwerra/distilbert-imdb"
+    reward_model: Optional[str] = "sentiment-analysis:siebert/sentiment-roberta-large-english"
     """The reward model to use - used only for tracking purposes"""
     remove_unused_columns: bool = True
     """Remove unused columns from the dataset if `datasets.Dataset` is used"""
@@ -70,7 +70,7 @@ class PPOConfig:
     """Number of training steps"""
     learning_rate: float = 1.41e-5
     """Adam learning rate"""
-    adap_kl_ctrl: bool = True
+    adap_kl_ctrl: bool = False
     """Use adaptive KL control, otherwise linear"""
     init_kl_coef: Optional[float] = 0.2
     """Initial KL penalty coefficient (used for adaptive and linear control)"""
