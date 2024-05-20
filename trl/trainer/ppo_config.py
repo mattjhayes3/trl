@@ -41,8 +41,8 @@ class PPOConfig:
     # common parameters
     exp_name: str
     start_time = dt.datetime.utcfromtimestamp(time.time()).strftime("%Y.%m.%d.%H.%M")
+    max_new_tokens = 16
     eval_model: Optional[str] = None
-    eval_batch_multiplier = 2
     """the name of this experiment (by default is the file name without the extension name)"""
     seed: int = 0
     """Seed value for random generations"""
@@ -50,7 +50,7 @@ class PPOConfig:
     """Log with either 'wandb' or 'tensorboard', check  https://huggingface.co/docs/accelerate/usage_guides/tracking for more details"""
     task_name: Optional[str] = None
     """Name of task to use - used only for tracking purposes"""
-    model_name: Optional[str] = "gpt2"
+    model_name: Optional[str] = "lvwerra/gpt2-imdb"
     """Name of model to use - used only for tracking purposes"""
     query_dataset: Optional[str] = "imdb"
     """Name of dataset to query - used only for tracking purposes"""
@@ -94,11 +94,11 @@ class PPOConfig:
     """Range for clipping values in loss calculation"""
     vf_coef: float = 0.1
     """Scaling factor for value loss"""
-    batch_size: int = 128
+    batch_size: int = 256
     """Number of samples per optimisation step"""
     forward_batch_size: Optional[int] = None
     """DEPRECATED: use `mini_batch_size` instead, which does the same thing."""
-    mini_batch_size: int = 128
+    mini_batch_size: int = 256
     """Number of samples optimized in each mini batch"""
     gradient_accumulation_steps: int = 1
     """The number of gradient accumulation steps"""
