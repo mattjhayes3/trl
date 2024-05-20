@@ -40,6 +40,7 @@ class PPOConfig:
 
     # common parameters
     exp_name: str
+    dry_run = False
     start_time = dt.datetime.utcfromtimestamp(time.time()).strftime("%Y.%m.%d.%H.%M")
     max_new_tokens = 16
     eval_model: Optional[str] = None
