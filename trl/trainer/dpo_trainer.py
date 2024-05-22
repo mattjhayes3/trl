@@ -1359,7 +1359,7 @@ class DPOTrainer(Trainer):
 
         Works both with or without labels.
         """
-
+        print("evaluation_loop")
         # Sample and save to game log if requested (for one batch to save time)
         if self.generate_during_eval:
             # Generate random indices within the range of the total number of samples
