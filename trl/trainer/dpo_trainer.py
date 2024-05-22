@@ -728,6 +728,10 @@ class DPOTrainer(Trainer):
         prompt = feature["prompt"]
         chosen = feature["chosen"]
         rejected = feature["rejected"]
+        # print('prompt', prompt)
+        # print('chosen', chosen)
+        # print('rejected', rejected)
+
 
         if not self.is_encoder_decoder:
             # Check issues below for more details
@@ -738,6 +742,7 @@ class DPOTrainer(Trainer):
             if not isinstance(prompt, str):
                 raise ValueError(f"prompt should be an str but got {type(prompt)}")
             prompt_tokens = self.tokenizer(prompt, add_special_tokens=False)
+            # print("prompt tokens", prompt_tokens)
             prompt_tokens = {f"prompt_{k}": v for k, v in prompt_tokens.items()}
 
             if not isinstance(chosen, str):
@@ -747,6 +752,15 @@ class DPOTrainer(Trainer):
             if not isinstance(rejected, str):
                 raise ValueError(f"rejected should be an str but got {type(rejected)}")
             rejected_tokens = self.build_tokenized_answer(prompt, rejected)
+
+            if len(prompt_tokens) > 8:
+                print("unexpected prompt length:", prompt)
+            
+            if len(chosen_tokens) > 16:
+                print("unexpected chosen length:", chosen)
+
+            if len(rejected_tokens) > 16:
+                print("unexpected rejected length:", rejected)
 
             # Last prompt token might get merged by tokenizer and
             # it should not be included for generation if that happens
@@ -766,45 +780,49 @@ class DPOTrainer(Trainer):
             )
             num_diff_len = abs(chosen_prompt_len_input_ids - rejected_prompt_len_input_ids)
             if num_diff_tokens > 1 or num_diff_len > 1:
-                raise ValueError(
-                    "Chosen and rejected prompt_input_ids might only differ on the "
-                    "last token due to tokenizer merge ops."
-                )
+                print(f'small diff, prompt: {prompt}\n{chosen}\n{rejected}')
+                # raise ValueError(
+                #     "Chosen and rejected prompt_input_ids might only differ on the "
+                #     "last token due to tokenizer merge ops."
+                # )
 
             # add BOS token to head of prompt. Avoid adding if it's already there
-            bos_token_id = self.tokenizer.bos_token_id
-            if prompt_len_input_ids == 0 or bos_token_id != prompt_tokens["prompt_input_ids"][0]:
-                prompt_tokens["prompt_input_ids"] = [bos_token_id] + prompt_tokens["prompt_input_ids"]
-                prompt_tokens["prompt_attention_mask"] = [1] + prompt_tokens["prompt_attention_mask"]
-            if chosen_prompt_len_input_ids == 0 or bos_token_id != chosen_tokens["prompt_input_ids"][0]:
-                chosen_tokens["prompt_input_ids"] = [bos_token_id] + chosen_tokens["prompt_input_ids"]
-                chosen_tokens["prompt_attention_mask"] = [1] + chosen_tokens["prompt_attention_mask"]
-            if rejected_prompt_len_input_ids == 0 or bos_token_id != rejected_tokens["prompt_input_ids"][0]:
-                rejected_tokens["prompt_input_ids"] = [bos_token_id] + rejected_tokens["prompt_input_ids"]
-                rejected_tokens["prompt_attention_mask"] = [1] + rejected_tokens["prompt_attention_mask"]
+            # bos_token_id = self.tokenizer.bos_token_id
+            # if prompt_len_input_ids == 0 or bos_token_id != prompt_tokens["prompt_input_ids"][0]:
+            #     prompt_tokens["prompt_input_ids"] = [bos_token_id] + prompt_tokens["prompt_input_ids"]
+            #     prompt_tokens["prompt_attention_mask"] = [1] + prompt_tokens["prompt_attention_mask"]
+            # if chosen_prompt_len_input_ids == 0 or bos_token_id != chosen_tokens["prompt_input_ids"][0]:
+            #     chosen_tokens["prompt_input_ids"] = [bos_token_id] + chosen_tokens["prompt_input_ids"]
+            #     chosen_tokens["prompt_attention_mask"] = [1] + chosen_tokens["prompt_attention_mask"]
+            # if rejected_prompt_len_input_ids == 0 or bos_token_id != rejected_tokens["prompt_input_ids"][0]:
+            #     rejected_tokens["prompt_input_ids"] = [bos_token_id] + rejected_tokens["prompt_input_ids"]
+            #     rejected_tokens["prompt_attention_mask"] = [1] + rejected_tokens["prompt_attention_mask"]
 
             # add EOS token to end of answer. Avoid adding if it's already there
-            eos_token_id = self.tokenizer.eos_token_id
-            if len(chosen_tokens["input_ids"]) == 0 or eos_token_id != chosen_tokens["input_ids"][-1]:
-                chosen_tokens["input_ids"].append(eos_token_id)
-                chosen_tokens["attention_mask"].append(1)
-            if len(rejected_tokens["input_ids"]) == 0 or eos_token_id != rejected_tokens["input_ids"][-1]:
-                rejected_tokens["input_ids"].append(eos_token_id)
-                rejected_tokens["attention_mask"].append(1)
+            # eos_token_id = self.tokenizer.eos_token_id
+            # if len(chosen_tokens["input_ids"]) == 0 or eos_token_id != chosen_tokens["input_ids"][-1]:
+            #     chosen_tokens["input_ids"].append(eos_token_id)
+            #     chosen_tokens["attention_mask"].append(1)
+            # if len(rejected_tokens["input_ids"]) == 0 or eos_token_id != rejected_tokens["input_ids"][-1]:
+            #     rejected_tokens["input_ids"].append(eos_token_id)
+            #     rejected_tokens["attention_mask"].append(1)
 
             longer_response_length = max(len(chosen_tokens["input_ids"]), len(rejected_tokens["input_ids"]))
 
             # if combined sequence is too long, truncate the prompt
-            for answer_tokens in [chosen_tokens, rejected_tokens, prompt_tokens]:
-                if len(answer_tokens["prompt_input_ids"]) + longer_response_length > self.max_length:
-                    if self.truncation_mode == "keep_start":
-                        for k in ["prompt_input_ids", "prompt_attention_mask"]:
-                            answer_tokens[k] = answer_tokens[k][: self.max_prompt_length]
-                    elif self.truncation_mode == "keep_end":
-                        for k in ["prompt_input_ids", "prompt_attention_mask"]:
-                            answer_tokens[k] = answer_tokens[k][-self.max_prompt_length :]
-                    else:
-                        raise ValueError(f"Unknown truncation mode: {self.truncation_mode}")
+            # for answer_tokens in [chosen_tokens, rejected_tokens, prompt_tokens]:
+            #     if len(answer_tokens["prompt_input_ids"]) + longer_response_length > self.max_length:
+            #         # breakpoint()
+            #         # print('longer repsonse length', longer_response_length)
+            #         # print('prompt length', len(answer_tokens["prompt_input_ids"]))
+            #         if self.truncation_mode == "keep_start":
+            #             for k in ["prompt_input_ids", "prompt_attention_mask"]:
+            #                 answer_tokens[k] = answer_tokens[k][: self.max_prompt_length]
+            #         elif self.truncation_mode == "keep_end":
+            #             for k in ["prompt_input_ids", "prompt_attention_mask"]:
+            #                 answer_tokens[k] = answer_tokens[k][-self.max_prompt_length :]
+            #         else:
+            #             raise ValueError(f"Unknown truncation mode: {self.truncation_mode}")
 
             # if that's still too long, truncate the response
             for answer_tokens in [chosen_tokens, rejected_tokens]:

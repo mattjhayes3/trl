@@ -15,7 +15,8 @@ from dataclasses import dataclass
 from typing import Dict, Literal, Optional
 
 from transformers import TrainingArguments
-
+import datetime as dt
+import time
 
 @dataclass
 class DPOConfig(TrainingArguments):
@@ -66,16 +67,15 @@ class DPOConfig(TrainingArguments):
         force_use_ref_model (`bool`, defaults to `False`):
             In case one passes a PEFT model for the active model and you want to use a different model for the ref_model, set this flag to `True`.
     """
-
     beta: float = 0.1
     label_smoothing: float = 0
     loss_type: Literal["sigmoid", "hinge", "ipo", "kto_pair", "bco_pair", "sppo_hard", "nca_pair"] = "sigmoid"
     label_pad_token_id: int = -100
     padding_value: int = 0
-    truncation_mode: str = "keep_end"
-    max_length: Optional[int] = None
-    max_prompt_length: Optional[int] = None
-    max_target_length: Optional[int] = None
+    truncation_mode: Optional[str] = 'keep_start'
+    max_length: Optional[int] = 24
+    max_prompt_length: Optional[int] = 8
+    max_target_length: Optional[int] = 16
     is_encoder_decoder: Optional[bool] = None
     disable_dropout: bool = True
     generate_during_eval: bool = False
@@ -87,3 +87,9 @@ class DPOConfig(TrainingArguments):
     ref_adapter_name: Optional[str] = None
     reference_free: bool = False
     force_use_ref_model: bool = False
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.start_time = dt.datetime.utcfromtimestamp(time.time()).strftime("%Y.%m.%d.%H.%M")
+        # if len(self.tracker_kwargs) == 0:
+        #     self.tracker_kwargs = {'wandb': {"name": f"{self.exp_name}-{self.start_time}"}}
