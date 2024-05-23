@@ -92,6 +92,6 @@ class DPOConfig(TrainingArguments):
         super().__post_init__()
         self.start_time = dt.datetime.utcfromtimestamp(time.time()).strftime("%Y.%m.%d.%H.%M")
         self.do_eval = True
-        self.evaluation_strategy = "steps"
+        # self.evaluation_strategy = "steps"
         # if len(self.tracker_kwargs) == 0:
         #     self.tracker_kwargs = {'wandb': {"name": f"{self.exp_name}-{self.start_time}"}}
