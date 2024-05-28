@@ -163,6 +163,7 @@ class DPOTrainer(Trainer):
         ref_adapter_name: Optional[str] = None,
         reference_free: bool = False,
         force_use_ref_model: bool = False,
+        tokenize: bool = False,
     ):
         if model_init_kwargs is not None:
             warnings.warn(
@@ -488,11 +489,13 @@ class DPOTrainer(Trainer):
         # Compute that only on the main process for faster data processing.
         # see: https://github.com/huggingface/trl/pull/1255
         # Disable to because pretokenized
-        # with PartialState().local_main_process_first():
-        #     # tokenize the dataset
-        #     train_dataset = train_dataset.map(self.tokenize_row, num_proc=self.dataset_num_proc)
-        #     if eval_dataset is not None:
-        #         eval_dataset = eval_dataset.map(self.tokenize_row, num_proc=self.dataset_num_proc)
+
+        if tokenize:
+            with PartialState().local_main_process_first():
+                # tokenize the dataset
+                train_dataset = train_dataset.map(self.tokenize_row, num_proc=self.dataset_num_proc)
+                if eval_dataset is not None:
+                    eval_dataset = eval_dataset.map(self.tokenize_row, num_proc=self.dataset_num_proc)
 
         super().__init__(
             model=model,

@@ -168,6 +168,7 @@ class DPOScriptArguments:
     gradient_checkpointing_use_reentrant: bool = field(
         default=False, metadata={"help": "Whether to apply `use_reentrant` for gradient_checkpointing"}
     )
+    tokenize: bool = field(default=False, metadata={"help": "only train on 1000 samples"})
 
 
 @dataclass
