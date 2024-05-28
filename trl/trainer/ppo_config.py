@@ -39,8 +39,8 @@ class PPOConfig:
     """
 
     # common parameters
-    normalize_scores: Optional[bool] = False
     exp_name: str
+    normalize_scores: Optional[bool] = False
     dry_run: Optional[bool] = False
     start_time = dt.datetime.utcfromtimestamp(time.time()).strftime("%Y.%m.%d.%H.%M")
     max_new_tokens = 16
