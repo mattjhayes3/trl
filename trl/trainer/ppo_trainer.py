@@ -184,7 +184,6 @@ class PPOTrainer(BaseTrainer):
                 Learning rate scheduler used for training.
         """
         super().__init__(config)
-        print("****** hi ******")
 
         # initial seed for reproducible experiments
         set_seed(config.seed)
@@ -1490,7 +1489,6 @@ class PPOTrainer(BaseTrainer):
         Returns:
             `dict[str, Any]`: A summary of the training statistics
         """
-        print("****** hi yo scores ******")
         bs = self.config.batch_size
 
         queries, responses, scores, response_masks = self._step_safety_checker(
