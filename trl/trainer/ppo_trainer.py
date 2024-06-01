@@ -1125,7 +1125,6 @@ class PPOTrainer(BaseTrainer):
 
     def _kl_penalty(self, kl_type, logprob: torch.FloatTensor, ref_logprob: torch.FloatTensor) -> torch.FloatTensor:
         if kl_type == "kl":
-            print(f"KL approx for shape f{logprob.shape}")
             return logprob - ref_logprob
 
         if kl_type == "abs":
@@ -1136,9 +1135,7 @@ class PPOTrainer(BaseTrainer):
 
         if kl_type == "full":
             # Flip is required due to this issue? :https://github.com/pytorch/pytorch/issues/57459
-            kl = F.kl_div(ref_logprob, logprob, log_target=True, reduction="none")
-            print(f"For input shapes f{logprob.shape}, computed KL shape {kl.shape}")
-            return kl.sum(-1)
+            return F.kl_div(ref_logprob, logprob, log_target=True, reduction="none").sum(-1)
 
         raise NotImplementedError
 
