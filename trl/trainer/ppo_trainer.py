@@ -29,7 +29,7 @@ from accelerate.utils import ProjectConfiguration, gather_object, is_deepspeed_a
 from datasets import Dataset
 from huggingface_hub import whoami
 from packaging import version
-from torch.optim import Adam
+from torch.optim import Adam, SGD
 from transformers import (
     DataCollatorForLanguageModeling,
     PreTrainedTokenizer,
@@ -244,7 +244,7 @@ class PPOTrainer(BaseTrainer):
                 f"ref_model must be a PreTrainedModelWrapper or `None`, got {type(ref_model)} - supported "
                 f"architectures are: {SUPPORTED_ARCHITECTURES} "
             )
-        self.optional_peft_ctx = (
+        self.optional_peft_ctx = (p
             self.accelerator.unwrap_model(self.model).pretrained_model.disable_adapter
             if self.is_peft_model
             else nullcontext
@@ -282,6 +282,7 @@ class PPOTrainer(BaseTrainer):
         # Step 3: Initialize optimizer and data collator
         self.data_collator = DataCollatorForLanguageModeling(self.tokenizer, mlm=False)
         if optimizer is None:
+            opt_class = Adam if not self.config.sgd else SGD
             self.optimizer = Adam(
                 filter(lambda p: p.requires_grad, self.model.parameters()),
                 lr=self.config.learning_rate,
