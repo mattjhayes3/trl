@@ -40,6 +40,7 @@ class PPOConfig:
 
     # common parameters
     exp_name: str
+    sgd: Optional[bool] = False
     normalize_scores: Optional[bool] = False
     dry_run: Optional[bool] = False
     start_time = dt.datetime.utcfromtimestamp(time.time()).strftime("%Y.%m.%d.%H.%M")
