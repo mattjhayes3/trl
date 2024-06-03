@@ -783,7 +783,8 @@ class PPOTrainer(BaseTrainer):
         # reshape advantages/ratios such that they are not averaged.
         train_stats["policy/advantages"] = torch.flatten(train_stats["policy/advantages"]).unsqueeze(0)
         train_stats["policy/advantages"] = torch.nan_to_num(train_stats["policy/advantages"], WANDB_PADDING)
-        train_stats["policy/ratio"] = torch.flatten(train_stats["policy/ratio"]).unsqueeze(0)
+        if not self.config.ac2:
+            train_stats["policy/ratio"] = torch.flatten(train_stats["policy/ratio"]).unsqueeze(0)
 
         stats = self.record_step_stats(
             scores=scores,
@@ -878,10 +879,18 @@ class PPOTrainer(BaseTrainer):
 
     def do_ac2(self, bs, model_inputs_names, batch_dict, all_stats, early_stop):
         with self.accelerator.accumulate(self.model):
+            model_inputs = {k: batch_dict[k] for k in model_inputs_names}
+            logprobs, logits, vpreds, _ = self.batched_forward_pass(
+                self.model,
+                batch_dict["queries"],
+                batch_dict["responses"],
+                model_inputs,
+                return_logits=False,
+            )
             self.model.train()
             loss_p, loss_v, train_stats = self.ac2loss(
-                batch_dict["logprobs"],
-                batch_dict["values"],
+                logprobs,
+                vpreds,
                 batch_dict["masks"],
                 batch_dict["advantages"],
                 batch_dict["returns"],
