@@ -770,6 +770,60 @@ class PPOTrainer(BaseTrainer):
         t = time.time()
         all_stats = []
         early_stop = False
+        if self.config.ac2:
+            self.do_ac2(bs, model_inputs_names, batch_dict, all_stats, early_stop)
+        else:
+            self.do_ppo(bs, model_inputs_names, batch_dict, all_stats, early_stop)
+
+        timing["time/ppo/optimize_step"] = time.time() - t
+
+        t = time.time()
+        train_stats = stack_dicts(all_stats)
+
+        # reshape advantages/ratios such that they are not averaged.
+        train_stats["policy/advantages"] = torch.flatten(train_stats["policy/advantages"]).unsqueeze(0)
+        train_stats["policy/advantages"] = torch.nan_to_num(train_stats["policy/advantages"], WANDB_PADDING)
+        train_stats["policy/ratio"] = torch.flatten(train_stats["policy/ratio"]).unsqueeze(0)
+
+        stats = self.record_step_stats(
+            scores=scores,
+            logprobs=all_logprobs,
+            ref_logprobs=ref_logprobs,
+            non_score_reward=non_score_reward,
+            train_stats=train_stats,
+            kl_coef=self.kl_ctl.value,
+            masks=masks,
+            queries=queries,
+            responses=responses,
+            kls=kls,
+        )
+        # Gather/Reduce stats from all processes
+        if self.is_distributed:
+            stats = self.gather_stats(stats)
+        stats = stats_to_np(stats)
+        timing["time/ppo/calc_stats"] = time.time() - t
+        stats["ppo/learning_rate"] = self.optimizer.param_groups[0]["lr"]
+
+        # Update the KL control - multiply the batch_size by the number of processes
+        self.kl_ctl.update(
+            stats["objective/kl"],
+            self.config.batch_size * self.accelerator.num_processes,
+        )
+
+        # Log the total ppo time
+        timing["time/ppo/total"] = time.time() - t0
+        stats.update(timing)
+
+        # post-process stats for tensorboard and other loggers
+        if self.config.log_with != "wandb":
+            stats = convert_to_scalar(stats)
+
+        if self.lr_scheduler is not None:
+            self.lr_scheduler.step()
+
+        return stats
+
+    def do_ppo(self, bs, model_inputs_names, batch_dict, all_stats, early_stop):
         for _ in range(self.config.ppo_epochs):
             if early_stop:
                 break
@@ -822,53 +876,26 @@ class PPOTrainer(BaseTrainer):
                 if early_stop:
                     break
 
-        timing["time/ppo/optimize_step"] = time.time() - t
-
-        t = time.time()
-        train_stats = stack_dicts(all_stats)
-
-        # reshape advantages/ratios such that they are not averaged.
-        train_stats["policy/advantages"] = torch.flatten(train_stats["policy/advantages"]).unsqueeze(0)
-        train_stats["policy/advantages"] = torch.nan_to_num(train_stats["policy/advantages"], WANDB_PADDING)
-        train_stats["policy/ratio"] = torch.flatten(train_stats["policy/ratio"]).unsqueeze(0)
-
-        stats = self.record_step_stats(
-            scores=scores,
-            logprobs=all_logprobs,
-            ref_logprobs=ref_logprobs,
-            non_score_reward=non_score_reward,
-            train_stats=train_stats,
-            kl_coef=self.kl_ctl.value,
-            masks=masks,
-            queries=queries,
-            responses=responses,
-            kls=kls,
-        )
-        # Gather/Reduce stats from all processes
-        if self.is_distributed:
-            stats = self.gather_stats(stats)
-        stats = stats_to_np(stats)
-        timing["time/ppo/calc_stats"] = time.time() - t
-        stats["ppo/learning_rate"] = self.optimizer.param_groups[0]["lr"]
-
-        # Update the KL control - multiply the batch_size by the number of processes
-        self.kl_ctl.update(
-            stats["objective/kl"],
-            self.config.batch_size * self.accelerator.num_processes,
-        )
-
-        # Log the total ppo time
-        timing["time/ppo/total"] = time.time() - t0
-        stats.update(timing)
-
-        # post-process stats for tensorboard and other loggers
-        if self.config.log_with != "wandb":
-            stats = convert_to_scalar(stats)
-
-        if self.lr_scheduler is not None:
-            self.lr_scheduler.step()
-
-        return stats
+    def do_ac2(self, bs, model_inputs_names, batch_dict, all_stats, early_stop):
+        with self.accelerator.accumulate(self.model):
+            self.model.train()
+            loss_p, loss_v, train_stats = self.ac2loss(
+                batch_dict["logprobs"],
+                batch_dict["values"],
+                batch_dict["masks"],
+                batch_dict["advantages"],
+                batch_dict["returns"],
+            )
+            loss = loss_p + loss_v
+            self.accelerator.backward(loss)
+            if self.config.max_grad_norm is not None:
+                if self.accelerator.sync_gradients:
+                    self.accelerator.clip_grad_norm_(self.model_params, self.config.max_grad_norm)
+            self.optimizer.step()
+            # we call optimizer.zero_grad() every time and let `accelerator` handle accumulation
+            # see https://huggingface.co/docs/accelerate/usage_guides/gradient_accumulation#the-finished-code
+            self.optimizer.zero_grad()
+            all_stats.append(train_stats)
 
     def _early_stop(self, policykl):
         r"""
@@ -1251,6 +1278,59 @@ class PPOTrainer(BaseTrainer):
                 vpred=masked_mean(vpreds, mask).detach(),
                 error=masked_mean((vpreds - returns) ** 2, mask).detach(),
                 clipfrac=vf_clipfrac.detach(),
+                mean=value_mean.detach(),
+                var=value_var.detach(),
+            ),
+        )
+        return pg_loss, self.config.vf_coef * vf_loss, flatten_dict(stats)
+    
+    def ac2loss(
+        self,
+        logprobs: torch.FloatTensor,
+        values: torch.FloatTensor,
+        mask: torch.LongTensor,
+        advantages: torch.FloatTensor,
+        returns: torch.FloatTensor,
+    ):
+        """
+        Calculate policy and value losses.
+
+        Args:
+            old_logprobs (`torch.FloatTensor`):
+                Log probabilities of the model, shape (`batch_size`, `response_length`)
+            values (`torch.FloatTensor`):
+                Values of the value head, shape (`batch_size`, `response_length`)
+            rewards (`torch.FloatTensor`):
+                Rewards from the reward model, shape (`batch_size`, `response_length`)
+            logits (`torch.FloatTensor`):
+                Logits of the model, shape (`batch_size`, `response_length`, `vocab_size`)
+            v_pred (`torch.FloatTensor`):
+                Values of the value head, shape (`batch_size`, `response_length`)
+            logprobs (`torch.FloatTensor`):
+                Log probabilities of the model, shape (`batch_size`, `response_length`)
+        """
+
+        vf_loss = 0.5 * masked_mean((values - returns) ** 2, mask)
+
+        pg_losses = -advantages * logprobs
+
+        pg_loss = masked_mean(pg_losses, mask)
+
+        loss = pg_loss + self.config.vf_coef * vf_loss
+
+        return_mean, return_var = masked_mean(returns, mask), masked_var(returns, mask)
+        value_mean, value_var = masked_mean(values, mask), masked_var(values, mask)
+
+        stats = dict(
+            loss=dict(policy=pg_loss.detach(), value=vf_loss.detach(), total=loss.detach()),
+            policy=dict(
+                advantages=advantages.detach(),
+                advantages_mean=masked_mean(advantages, mask).detach(),
+            ),
+            returns=dict(mean=return_mean.detach(), var=return_var.detach()),
+            val=dict(
+                vpred=masked_mean(values, mask).detach(),
+                error=masked_mean((values - returns) ** 2, mask).detach(),
                 mean=value_mean.detach(),
                 var=value_var.detach(),
             ),
